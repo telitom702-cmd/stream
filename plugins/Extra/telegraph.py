@@ -8,48 +8,35 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-MAX_FILE_SIZE = 5 * 1024 * 1024
-
-
 async def upload_to_telegraph(file_path):
+    """Telegraph upload বন্ধ, তাই catbox.moe ব্যবহার করা হয়েছে।"""
     try:
-        async with aiohttp.ClientSession() as session:
-            with open(file_path, "rb") as file:
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            with open(file_path, "rb") as f:
                 form = aiohttp.FormData()
+                form.add_field("reqtype", "fileupload")
                 form.add_field(
-                    "file",
-                    file,
-                    filename=os.path.basename(file_path),
+                    "fileToUpload",
+                    f,
+                    filename=os.path.basename(file_path)
                 )
 
                 async with session.post(
-                    "https://telegra.ph/upload",
+                    "https://catbox.moe/user/api.php",
                     data=form
                 ) as response:
+                    text = (await response.text()).strip()
 
-                    result = await response.text()
+                    if response.status == 200 and text.startswith("http"):
+                        return text
 
-                    if response.status != 200:
-                        print(f"Telegraph HTTP {response.status}: {result}")
-                        return None
+                    print(f"Upload error: {response.status} {text}")
 
-                    try:
-                        data = await response.json(content_type=None)
-                    except Exception:
-                        print(f"Invalid Telegraph response: {result}")
-                        return None
-
-                    if isinstance(data, list) and data:
-                        src = data[0].get("src")
-
-                        if src:
-                            return "https://telegra.ph" + src
-
-                    print(f"Telegraph upload failed: {data}")
-                    return None
+        return None
 
     except Exception as e:
-        print(f"Telegraph upload error: {e}")
+        print(f"Upload error: {e}")
         return None
 
 
@@ -62,69 +49,44 @@ async def telegraph_upload(bot, update):
     )
 
     if not t_msg.photo:
-        return await update.reply_text(
-            "**❌ Only Photo Supported.**"
-        )
+        return await update.reply_text("**❌ Only Photo Supported.**")
 
-    if t_msg.photo.file_size and t_msg.photo.file_size > MAX_FILE_SIZE:
-        return await update.reply_text(
-            "**❌ File size must be under 5MB.**"
-        )
+    # Check 5MB limit
+    if t_msg.photo.file_size and t_msg.photo.file_size > 5 * 1024 * 1024:
+        return await update.reply_text("**❌ File size must be under 5MB.**")
 
-    path = None
+    path = await t_msg.download()
+    uploading_message = await update.reply_text("<b>Uploading...</b>")
 
     try:
-        path = await t_msg.download()
-
-        uploading_message = await update.reply_text(
-            "<b>ᴜᴘʟᴏᴀᴅɪɴɢ...</b>"
-        )
-
         image_url = await upload_to_telegraph(path)
+    except Exception as error:
+        image_url = None
+        print(f"Upload failed: {error}")
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
 
-        if not image_url:
-            return await uploading_message.edit_text(
-                "**❌ Failed to upload image.**"
-            )
-
-        await uploading_message.edit_text(
-            text=f"<b>Link :-</b>\n\n<code>{image_url}</code>",
-            disable_web_page_preview=True,
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        text="Open Link",
-                        url=image_url
-                    ),
-                    InlineKeyboardButton(
-                        text="Share Link",
-                        url=f"https://telegram.me/share/url?url={image_url}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="✗ Close ✗",
-                        callback_data="close"
-                    )
-                ]
-            ])
+    if not image_url:
+        return await uploading_message.edit_text(
+            "**❌ Failed to upload image.**"
         )
 
-    except Exception as error:
-        print(f"Telegraph command error: {error}")
-
-        if 'uploading_message' in locals():
-            await uploading_message.edit_text(
-                f"**❌ Upload failed:** `{error}`"
-            )
-        else:
-            await update.reply_text(
-                f"**❌ Upload failed:** `{error}`"
-            )
-
-    finally:
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception:
-                pass
+    await uploading_message.edit_text(
+        text=f"<b>Link :-</b>\n\n<code>{image_url}</code>",
+        disable_web_page_preview=True,
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(text="Open Link", url=image_url),
+                InlineKeyboardButton(
+                    text="Share Link",
+                    url=f"https://telegram.me/share/url?url={image_url}"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="❌ Close ❌", callback_data="close")
+            ]
+        ])
+                )
