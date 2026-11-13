@@ -35,8 +35,8 @@ async def save_file(media):
     # File Name Clean করা হবে
     file_name = clean_file_name(file_name)
 
-    # VJ_Bots Prefix যোগ করা হবে
-    new_file_name = f"@VJ_Bots {file_name}"
+    # @DramaZGroup Prefix যোগ করা হবে
+    new_file_name = f"@DramaZGroup {file_name}"
     
     file = {
         'file_id': file_id,
